@@ -1,0 +1,13 @@
+data,descricao,categoria,valor,tipo
+2026-08-01,Salário,receita,5000.00,entrada
+2026-08-02,Aluguel,moradia,1200.00,saida
+2026-08-03,Supermercado,alimentação,450.00,saida
+2026-08-05,Netflix,lazer,55.90,saida
+2026-08-07,Farmácia,saúde,89.00,saida
+2026-08-10,Restaurante,alimentação,120.00,saida
+2026-08-12,Uber,transporte,45.00,saida
+2026-08-15,Conta de luz,moradia,180.00,saida
+2026-08-16,Internet,moradia,100.00,saida
+2026-08-20,Academia,saúde,99.00,saida
+2026-08-22,Curso online,educação,200.00,saida
+2026-08-25,Combustível,transporte,250.00,saida

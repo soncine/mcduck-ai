@@ -1,0 +1,16 @@
+{
+  "nome": "João Silva",
+  "idade": 32,
+  "profissao": "Analista de Sistemas",
+  "renda_mensal": 5000.0,
+  "objetivo_principal": "Organizar o orçamento mensal",
+  "reserva_emergencia_atual": 10000.0,
+  "limites_mensais": {
+    "moradia": 1500.0,
+    "alimentacao": 700.0,
+    "transporte": 400.0,
+    "saude": 300.0,
+    "lazer": 250.0,
+    "educacao": 300.0
+  }
+}
