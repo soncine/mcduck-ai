@@ -73,6 +73,43 @@ class PersistenceAndActionsTests(unittest.TestCase):
         self.assertTrue(result.changed)
         self.assertEqual(self.db.list_limits()["lazer"], 300)
 
+    def test_chat_accepts_amount_then_limit_then_category(self):
+        result = process_command(
+            "Adicione 700 de limite no cartão",
+            self.db,
+            available=3200,
+        )
+        self.assertTrue(result.changed)
+        self.assertEqual(self.db.list_limits()["cartao"], 700)
+
+    def test_chat_completes_pending_limit_with_category_reply(self):
+        first = process_command(
+            "Adicione um limite de 700",
+            self.db,
+            available=3200,
+        )
+        reopened = FinanceDatabase(self.db_path)
+        second = process_command("Cartão", reopened, available=3200)
+
+        self.assertFalse(first.changed)
+        self.assertIn("qual categoria", first.message.lower())
+        self.assertTrue(second.changed)
+        self.assertEqual(reopened.list_limits()["cartao"], 700)
+        self.assertIsNone(reopened.get_pending_chat_action())
+
+    def test_chat_completes_pending_limit_with_value_reply(self):
+        first = process_command(
+            "Defina um limite para Alimentação",
+            self.db,
+            available=3200,
+        )
+        second = process_command("R$ 650", self.db, available=3200)
+
+        self.assertFalse(first.changed)
+        self.assertIn("qual valor", first.message.lower())
+        self.assertTrue(second.changed)
+        self.assertEqual(self.db.list_limits()["alimentacao"], 650)
+
     def test_incomplete_limit_command_asks_for_missing_value(self):
         result = process_command(
             "Defina um limite para Alimentação",

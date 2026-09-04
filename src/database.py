@@ -152,6 +152,34 @@ class FinanceDatabase:
         if round(previous, 2) != round(value, 2):
             self.log_change("renda_atualizada", {"de": previous, "para": value, "origem": source})
 
+    def get_pending_chat_action(self) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT value FROM settings WHERE key = 'pending_chat_action'"
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            action = json.loads(row["value"])
+        except (json.JSONDecodeError, TypeError):
+            self.clear_pending_chat_action()
+            return None
+        return action if isinstance(action, dict) else None
+
+    def set_pending_chat_action(self, action: dict[str, Any]) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO settings(key, value, updated_at) VALUES ('pending_chat_action', ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                """,
+                (json.dumps(action, ensure_ascii=False), self._now()),
+            )
+
+    def clear_pending_chat_action(self) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM settings WHERE key = 'pending_chat_action'")
+
     def list_expenses(self) -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(

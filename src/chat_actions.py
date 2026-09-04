@@ -91,7 +91,40 @@ def parse_limit_change(message: str) -> tuple[str, float] | None:
         amount = parse_money(amount_first.group(1))
         category = clean_category(amount_first.group(2))
         return (category, amount) if category else None
+
+    amount_then_limit = re.search(
+        rf"\b(?:defina|adicione|crie|coloque|estabele[çc]a|ajuste|altere|mude)\s+"
+        rf"{MONEY_PATTERN}\s+(?:de\s+)?limite\s+"
+        rf"(?:em|no|na|para|para o|para a|da categoria|na categoria)\s+(.+)$",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if amount_then_limit:
+        amount = parse_money(amount_then_limit.group(1))
+        category = clean_category(amount_then_limit.group(2))
+        return (category, amount) if category else None
     return None
+
+
+def category_from_limit_message(message: str) -> str:
+    """Extrai uma categoria já informada em um comando de limite sem valor."""
+    match = re.search(
+        r"\blimite\s+(?:de|da|do|para|em|no|na|para o|para a|da categoria|na categoria)\s+(.+)$",
+        message,
+        flags=re.IGNORECASE,
+    )
+    return clean_category(match.group(1)) if match else ""
+
+
+def category_from_reply(message: str) -> str:
+    """Limpa respostas curtas como 'cartão' ou 'na categoria Cartão'."""
+    value = re.sub(
+        r"^\s*(?:(?:a\s+)?categoria\s+(?:é|e)\s+|(?:na|no|em|para a|para o)\s+)",
+        "",
+        message,
+        flags=re.IGNORECASE,
+    )
+    return clean_category(value)
 
 
 def _reorganize_budget(db: FinanceDatabase, income: float, mention_investment: bool) -> CommandResult:
@@ -167,6 +200,47 @@ def process_command(
     intent = normalize(text)
     if not text:
         return CommandResult(False)
+
+    pending_action = db.get_pending_chat_action()
+    if pending_action and intent in {"cancelar", "cancele", "cancelar alteracao", "esqueca"}:
+        db.clear_pending_chat_action()
+        return CommandResult(True, "Cancelei a alteração que estava aguardando informações.")
+
+    command_words = {
+        "adicione",
+        "adicionar",
+        "altere",
+        "ajuste",
+        "apague",
+        "coloque",
+        "crie",
+        "defina",
+        "exclua",
+        "mude",
+        "remova",
+    }
+    starts_new_command = any(
+        re.search(rf"\b{re.escape(word)}\b", intent) for word in command_words
+    )
+    if pending_action and pending_action.get("action") == "set_limit" and not starts_new_command:
+        pending_amount = pending_action.get("amount")
+        pending_category = str(pending_action.get("category", "")).strip()
+        if pending_amount is None:
+            pending_amount = first_amount(text)
+        elif not pending_category:
+            pending_category = category_from_reply(text)
+
+        if pending_amount is not None and pending_category:
+            amount = float(pending_amount)
+            if amount <= 0:
+                return CommandResult(True, "O limite precisa ser maior que zero.")
+            db.upsert_limit(pending_category, amount, source="chat")
+            db.clear_pending_chat_action()
+            return CommandResult(
+                True,
+                f"Defini o limite mensal de {pending_category} em {brl(amount)}.",
+                changed=True,
+            )
 
     investment_terms = ("investimento", "investimentos", "acao", "acoes", "cripto", "tesouro", "cdb")
     change_terms = (
@@ -261,6 +335,7 @@ def process_command(
     if remove_limit_match:
         category = clean_category(remove_limit_match.group(1))
         if db.remove_limit(category, source="chat"):
+            db.clear_pending_chat_action()
             return CommandResult(
                 True,
                 f"Removi o limite da categoria {category}.",
@@ -277,6 +352,7 @@ def process_command(
         if amount <= 0:
             return CommandResult(True, "O limite precisa ser maior que zero.")
         db.upsert_limit(category, amount, source="chat")
+        db.clear_pending_chat_action()
         return CommandResult(
             True,
             f"Defini o limite mensal de {category} em {brl(amount)}.",
@@ -287,8 +363,13 @@ def process_command(
         term in intent
         for term in ("defina", "adicione", "crie", "coloque", "estabeleca", "ajuste", "altere", "mude")
     ):
-        if first_amount(text) is None:
+        amount = first_amount(text)
+        category = category_from_limit_message(text)
+        if amount is None:
+            if category:
+                db.set_pending_chat_action({"action": "set_limit", "category": category})
             return CommandResult(True, "Qual valor mensal você quer definir para esse limite?")
+        db.set_pending_chat_action({"action": "set_limit", "amount": amount})
         return CommandResult(True, "Para qual categoria você quer definir esse limite?")
 
     # Exemplo: “altere Alimentação para R$ 650”.
