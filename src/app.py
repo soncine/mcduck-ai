@@ -14,10 +14,13 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from chat_actions import process_command
+from database import FinanceDatabase
 from finance import brl, calculate_goal, load_knowledge, local_answer, normalize, summarize_budget
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+DB_PATH = Path(os.getenv("MCDUCK_DB_PATH", str(BASE_DIR / "data" / "mcduck.db")))
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss")
 MOSS_PALETTE = [
@@ -41,17 +44,24 @@ REGRAS OBRIGATÓRIAS
 2. Nunca invente renda, despesas, prazos, taxas ou resultados.
 3. Explique cálculos de modo simples e identifique a origem dos valores usados.
 4. Se faltarem dados, liste objetivamente o que falta e peça essas informações.
-5. Não recomende investimentos específicos, não prometa retornos e não substitua um profissional.
+5. Não ensine, compare ou recomende investimentos e produtos financeiros, não prometa retornos e não substitua um profissional.
+   A palavra "Investimentos" pode ser usada apenas como nome de uma categoria de planejamento definida pelo usuário.
 6. Não solicite nem exponha senhas, tokens, CPF completo ou dados de outros clientes.
 7. Recuse assuntos fora de orçamento, gastos, economia e planejamento de metas.
 8. Termine, quando possível, com uma próxima ação prática, sem decidir pelo usuário.
 9. Responda em português do Brasil, com linguagem amigável, direta e sem julgamento.
+10. Quando uma solicitação de mudança estiver ambígua, peça o dado que falta antes de afirmar que algo foi alterado.
 """
 
 
 @st.cache_data
 def get_data():
     return load_knowledge(BASE_DIR)
+
+
+@st.cache_resource
+def get_database() -> FinanceDatabase:
+    return FinanceDatabase(DB_PATH)
 
 
 def ask_ollama(message: str, context: dict) -> str:
@@ -91,20 +101,6 @@ def adjusted_summary(income: float, category_values: dict[str, float]) -> dict:
         "percentual_comprometido": committed,
         "categorias": dict(sorted(category_values.items(), key=lambda item: item[1], reverse=True)),
     }
-
-
-def aggregate_expenses(rows: list[dict]) -> dict[str, float]:
-    """Agrupa linhas editáveis que tenham categoria e valor válidos."""
-    categories: dict[str, float] = {}
-    for row in rows:
-        category = str(row.get("Categoria", "")).strip()
-        value = row.get("Valor mensal", 0)
-        if not category or pd.isna(value):
-            continue
-        amount = max(0.0, float(value))
-        display_name = category[:40]
-        categories[display_name] = round(categories.get(display_name, 0) + amount, 2)
-    return categories
 
 
 def pie_chart(categories: dict[str, float]) -> go.Figure:
@@ -177,6 +173,15 @@ def metric_card(column, label: str, value: str, note: str) -> None:
         )
 
 
+def render_chat_message(item: dict[str, str]) -> None:
+    """Renderiza moeda sem permitir que o Markdown interprete R$ como fórmula."""
+    role = item["role"]
+    avatar = ":material/person:" if role == "user" else ":material/account_balance_wallet:"
+    content = item["content"].replace("R$", "R\\$")
+    with st.chat_message(role, avatar=avatar):
+        st.markdown(content)
+
+
 st.set_page_config(page_title="McDuck AI", layout="wide", initial_sidebar_state="expanded")
 st.markdown(
     """
@@ -222,11 +227,16 @@ st.markdown(
       .insight-label {color: var(--moss-500); font-size: .7rem; font-weight: 750; letter-spacing: .1em; text-transform: uppercase;}
       .insight-card h3 {margin: .42rem 0 .65rem; color: var(--text-color); font-size: 1.35rem;}
       .insight-card p {margin: 0 0 .55rem; color: var(--text-color); opacity: .78; line-height: 1.55;}
+      .chat-intro {padding: 1.15rem 1.25rem; margin-bottom: 1rem; border: 1px solid rgba(82,110,70,.24); border-radius: 14px; background: linear-gradient(120deg, rgba(82,110,70,.12), rgba(82,110,70,.04));}
+      .chat-intro h3 {margin: .35rem 0 .4rem; color: var(--text-color); font-size: 1.2rem;}
+      .chat-intro p {margin: 0; color: var(--text-color); opacity: .72; line-height: 1.5;}
       .goal-card {padding: 1rem 1.1rem; margin: .7rem 0; border: 1px solid rgba(82,110,70,.25); border-radius: 13px; background: rgba(82,110,70,.06);}
-      div[data-testid="stSidebar"] {border-right: 1px solid rgba(82,110,70,.18);}
+      div[data-testid="stSidebar"] {min-width: 340px; border-right: 1px solid rgba(82,110,70,.18);}
+      div[data-testid="stSidebar"] > div:first-child {width: 340px;}
       div[data-testid="stSidebar"] h2, div[data-testid="stSidebar"] h3 {letter-spacing: -.02em;}
       div[data-baseweb="tab-list"] {gap: .45rem; border-bottom: 1px solid rgba(128,128,128,.18);}
-      div[data-baseweb="tab"] {padding-left: .8rem; padding-right: .8rem;}
+      div[data-baseweb="tab"] {min-height: 48px; padding-left: 1.15rem; padding-right: 1.15rem; font-size: .95rem; font-weight: 600;}
+      [data-testid="stChatMessage"] {margin: .45rem 0; padding: .8rem 1rem; border: 1px solid rgba(82,110,70,.16); border-radius: 14px; background: rgba(82,110,70,.055);}
       .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
         border-color: var(--moss-700); color: var(--text-color); border-radius: 9px;
       }
@@ -256,18 +266,16 @@ st.markdown(
 
 profile, transactions, history = get_data()
 base_summary = summarize_budget(transactions)
+db = get_database()
+db.seed_defaults(base_summary["receitas"], base_summary["categorias"])
 
-if "expense_rows" not in st.session_state:
-    st.session_state.expense_rows = [
-        {"Categoria": category.title(), "Valor mensal": float(value)}
-        for category, value in base_summary["categorias"].items()
-    ]
 if "expense_editor_version" not in st.session_state:
     st.session_state.expense_editor_version = 0
+if "sync_income_from_database" in st.session_state:
+    st.session_state.monthly_income = db.get_income()
+    del st.session_state.sync_income_from_database
 if "monthly_income" not in st.session_state:
-    st.session_state.monthly_income = float(base_summary["receitas"])
-if "user_goals" not in st.session_state:
-    st.session_state.user_goals = []
+    st.session_state.monthly_income = db.get_income()
 
 with st.sidebar:
     st.markdown("## Planejamento mensal")
@@ -284,6 +292,7 @@ with st.sidebar:
         with st.form("new_expense_form", clear_on_submit=True):
             new_category = st.text_input("Nome da categoria", placeholder="Ex.: Pets")
             new_amount = st.number_input("Valor mensal", min_value=0.0, step=10.0, format="%.2f")
+            new_expense_type = st.selectbox("Tipo", ["Variável", "Fixa", "Planejamento"])
             add_expense = st.form_submit_button("Adicionar ao orçamento", type="primary", width="stretch")
         if add_expense:
             category = new_category.strip()
@@ -292,15 +301,30 @@ with st.sidebar:
             elif new_amount <= 0:
                 st.error("Informe um valor maior que zero.")
             else:
-                st.session_state.expense_rows.append(
-                    {"Categoria": category[:40], "Valor mensal": float(new_amount)}
+                db.upsert_expense(
+                    category,
+                    float(new_amount),
+                    new_expense_type,
+                    add=True,
+                    source="interface",
                 )
                 st.session_state.expense_editor_version += 1
                 st.rerun()
 
     st.markdown("### Gastos por categoria")
-    st.caption("Edite os valores, adicione linhas ou exclua o que não fizer parte do seu mês.")
-    expense_frame = pd.DataFrame(st.session_state.expense_rows, columns=["Categoria", "Valor mensal"])
+    st.caption("As alterações são salvas automaticamente neste dispositivo.")
+    stored_expenses = db.list_expenses()
+    expense_frame = pd.DataFrame(
+        [
+            {
+                "Categoria": row["category"],
+                "Tipo": row["expense_type"],
+                "Valor mensal": float(row["amount"]),
+            }
+            for row in stored_expenses
+        ],
+        columns=["Categoria", "Tipo", "Valor mensal"],
+    )
     edited_expenses = st.data_editor(
         expense_frame,
         key=f"expense_editor_{st.session_state.expense_editor_version}",
@@ -309,12 +333,38 @@ with st.sidebar:
         width="stretch",
         column_config={
             "Categoria": st.column_config.TextColumn("Categoria", required=True, max_chars=40),
+            "Tipo": st.column_config.SelectboxColumn(
+                "Tipo", options=["Fixa", "Variável", "Planejamento"], required=True
+            ),
             "Valor mensal": st.column_config.NumberColumn(
                 "Valor mensal", min_value=0.0, step=10.0, format="R$ %.2f", required=True
             ),
         },
     )
-    st.session_state.expense_rows = edited_expenses.to_dict("records")
+    edited_records = [
+        {
+            "Categoria": str(row.get("Categoria", "")).strip(),
+            "Tipo": str(row.get("Tipo", "Variável")),
+            "Valor mensal": 0.0 if pd.isna(row.get("Valor mensal")) else float(row["Valor mensal"]),
+        }
+        for row in edited_expenses.to_dict("records")
+        if str(row.get("Categoria", "")).strip()
+    ]
+    current_signature = [
+        (row["category"], row["expense_type"], round(float(row["amount"]), 2))
+        for row in stored_expenses
+    ]
+    edited_signature = [
+        (row["Categoria"], row["Tipo"], round(float(row["Valor mensal"]), 2))
+        for row in edited_records
+    ]
+    if current_signature != edited_signature:
+        db.replace_expenses(edited_records)
+        st.session_state.expense_editor_version += 1
+        st.rerun()
+
+    if round(float(income), 2) != round(db.get_income(), 2):
+        db.set_income(float(income), source="interface")
 
     export_csv = edited_expenses.to_csv(index=False).encode("utf-8-sig")
     st.download_button(
@@ -328,7 +378,8 @@ with st.sidebar:
     use_ollama = st.toggle("Assistente de linguagem", value=True)
     st.caption(f"Modelo local: {OLLAMA_MODEL}")
 
-categories = aggregate_expenses(st.session_state.expense_rows)
+stored_expenses = db.list_expenses()
+categories = {row["category"]: float(row["amount"]) for row in stored_expenses}
 summary = adjusted_summary(float(income), categories)
 limits = profile.get("limites_mensais", {})
 
@@ -431,40 +482,75 @@ with tab_dashboard:
 with tab_chat:
     st.markdown('<p class="section-kicker">Orientação financeira</p>', unsafe_allow_html=True)
     st.markdown('<h2 class="section-title">Converse com o McDuck AI</h2>', unsafe_allow_html=True)
-    st.caption("Os cálculos são processados pelo sistema; o modelo local é usado para perguntas abertas.")
+    st.markdown(
+        """
+        <div class="chat-intro">
+            <div class="insight-label">Assistente com ações</div>
+            <h3>Converse e atualize seu planejamento</h3>
+            <p>Peça para alterar renda, criar ou remover categorias, registrar aportes e reorganizar o orçamento. Solicitações ambíguas serão confirmadas antes da mudança.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    if "messages" not in st.session_state:
-        st.session_state.messages = [
+    quick_columns = st.columns(4)
+    quick_message = None
+    if quick_columns[0].button("Analisar orçamento", width="stretch"):
+        quick_message = "Analise meu orçamento atual."
+    if quick_columns[1].button("Reorganizar renda", width="stretch"):
+        quick_message = "Reorganize minha renda da melhor forma possível."
+    if quick_columns[2].button("Ver minhas metas", width="stretch"):
+        quick_message = "Como estão minhas metas?"
+    clear_chat = quick_columns[3].button("Limpar conversa", width="stretch")
+    if clear_chat:
+        db.clear_chat()
+        st.rerun()
+
+    stored_messages = db.list_messages()
+    if not stored_messages:
+        stored_messages = [
             {
                 "role": "assistant",
                 "content": (
-                    "Olá. Posso analisar seu orçamento, identificar as maiores categorias de gasto "
-                    "ou ajudar a planejar uma meta. Por onde você gostaria de começar?"
+                    "Olá. Posso analisar seu orçamento e também aplicar mudanças quando você pedir. "
+                    "Experimente dizer: ‘Adicione R$ 300 em Pets’ ou ‘Minha renda passou para R$ 6.000’."
                 ),
             }
         ]
 
-    for item in st.session_state.messages:
-        with st.chat_message(item["role"]):
-            st.markdown(item["content"])
+    for item in stored_messages:
+        render_chat_message(item)
 
-    if message := st.chat_input("Ex.: Qual categoria pesa mais no meu orçamento?"):
-        st.session_state.messages.append({"role": "user", "content": message})
-        with st.chat_message("user"):
-            st.markdown(message)
-
+    typed_message = st.chat_input("Digite uma pergunta ou alteração para o seu orçamento")
+    message = typed_message or quick_message
+    if message:
+        db.save_message("user", message)
+        stored_goals = db.list_goals()
         user_profile = {
             **profile,
-            "metas": st.session_state.user_goals,
+            "metas": [
+                {
+                    "meta": goal["name"],
+                    "valor_necessario": goal["target"],
+                    "valor_atual": goal["current"],
+                    "prazo": goal["deadline"],
+                }
+                for goal in stored_goals
+            ],
             "limites_mensais": limits,
         }
-        answer = local_answer(message, user_profile, summary)
-        if answer is None:
+        command = process_command(message, db, summary["disponivel"])
+        if command.handled:
+            answer = command.message
+        else:
+            answer = local_answer(message, user_profile, summary)
+        if not command.handled and answer is None:
             if use_ollama:
                 context = {
                     "resumo_orcamento": summary,
+                    "despesas_com_tipo": db.list_expenses(),
                     "limites_mensais": limits,
-                    "metas": st.session_state.user_goals,
+                    "metas": stored_goals,
                     "atendimentos_anteriores": history,
                 }
                 with st.spinner("Analisando seu contexto financeiro..."):
@@ -474,9 +560,20 @@ with tab_chat:
                     "Ative o assistente de linguagem na barra lateral para perguntas abertas. "
                     "Os cálculos de orçamento e metas permanecem disponíveis."
                 )
-        with st.chat_message("assistant"):
-            st.markdown(answer)
-        st.session_state.messages.append({"role": "assistant", "content": answer})
+        db.save_message("assistant", answer)
+        if command.changed:
+            st.session_state.expense_editor_version += 1
+        if command.income_changed:
+            st.session_state.sync_income_from_database = True
+        st.rerun()
+
+    recent_changes = db.list_changes(6)
+    if recent_changes:
+        with st.expander("Alterações salvas recentemente"):
+            for change in recent_changes:
+                action = change["action"].replace("_", " ").title()
+                time_label = change["created_at"].replace("T", " ")
+                st.caption(f"{time_label} — {action}")
 
 with tab_goals:
     st.markdown('<p class="section-kicker">Planejamento</p>', unsafe_allow_html=True)
@@ -499,19 +596,19 @@ with tab_goals:
                 elif target <= 0:
                     st.error("Informe um valor desejado maior que zero.")
                 else:
-                    st.session_state.user_goals.append(
-                        {
-                            "meta": goal_name.strip()[:60],
-                            "valor_necessario": float(target),
-                            "valor_atual": float(current),
-                            "prazo": deadline.strftime("%Y-%m"),
-                        }
+                    db.add_goal(
+                        goal_name,
+                        float(target),
+                        float(current),
+                        deadline.strftime("%Y-%m"),
+                        source="interface",
                     )
                     st.rerun()
 
     with overview_column:
         st.markdown("#### Metas em andamento")
-        if not st.session_state.user_goals:
+        stored_goals = db.list_goals()
+        if not stored_goals:
             st.markdown(
                 """
                 <div class="insight-card">
@@ -524,27 +621,27 @@ with tab_goals:
             )
         else:
             goals_to_remove = []
-            for index, goal_data in enumerate(st.session_state.user_goals):
+            for goal_data in stored_goals:
                 calculation = calculate_goal(
-                    goal_data["valor_necessario"],
-                    goal_data.get("valor_atual", 0),
-                    goal_data["prazo"],
+                    goal_data["target"],
+                    goal_data["current"],
+                    goal_data["deadline"],
                 )
                 progress = min(
                     1.0,
-                    goal_data.get("valor_atual", 0) / goal_data["valor_necessario"]
-                    if goal_data["valor_necessario"]
+                    goal_data["current"] / goal_data["target"]
+                    if goal_data["target"]
                     else 0,
                 )
                 with st.container(border=True):
                     title_col, remove_col = st.columns([5, 1])
-                    title_col.markdown(f"**{html.escape(goal_data['meta'])}**")
-                    if remove_col.button("Remover", key=f"remove_goal_{index}"):
-                        goals_to_remove.append(index)
+                    title_col.markdown(f"**{html.escape(goal_data['name'])}**")
+                    if remove_col.button("Remover", key=f"remove_goal_{goal_data['id']}"):
+                        goals_to_remove.append(goal_data["id"])
                     st.progress(progress, text=f"{progress * 100:.0f}% concluído")
                     data_col1, data_col2, data_col3 = st.columns(3)
                     data_col1.caption("Valor da meta")
-                    data_col1.write(brl(goal_data["valor_necessario"]))
+                    data_col1.write(brl(goal_data["target"]))
                     data_col2.caption("Falta reservar")
                     data_col2.write(brl(calculation["valor_faltante"]))
                     data_col3.caption("Reserva mensal")
@@ -559,8 +656,8 @@ with tab_goals:
                         and calculation["economia_mensal"] > max(summary["disponivel"], 0)
                     ):
                         st.warning("A reserva mensal calculada supera a margem disponível no orçamento atual.")
-            for index in reversed(goals_to_remove):
-                st.session_state.user_goals.pop(index)
+            for goal_id in goals_to_remove:
+                db.remove_goal(goal_id)
             if goals_to_remove:
                 st.rerun()
 

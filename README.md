@@ -6,7 +6,7 @@
 
 O McDuck AI foi desenvolvido como projeto final do **Bootcamp Bradesco — Dados, GenAI & Cybersecurity**, da DIO. Ele ajuda pessoas que têm dificuldade para visualizar para onde o dinheiro vai, saber quanto da renda está comprometida e planejar objetivos sem perder o controle do orçamento.
 
-O agente analisa apenas os dados informados pelo usuário ou presentes na base fictícia. Ele **não recomenda investimentos**, não promete retornos e não substitui um profissional financeiro.
+O agente analisa apenas os dados informados pelo usuário ou presentes na base inicial. Ele não ensina, compara ou recomenda investimentos, não promete retornos e não substitui um profissional financeiro. O termo “Investimentos” pode ser usado como categoria de planejamento, sem indicação de produtos.
 
 ## O que o McDuck AI faz
 
@@ -20,6 +20,9 @@ O agente analisa apenas os dados informados pelo usuário ou presentes na base f
 - calcula quanto guardar por mês para atingir uma meta;
 - avalia se o valor mensal da meta cabe no orçamento disponível;
 - responde perguntas em um chat com regras anti-alucinação;
+- altera renda, gastos, categorias, metas e aportes por comandos no chat;
+- reorganiza a renda quando o usuário solicita, preservando despesas fixas e pedindo contexto diante de conflitos;
+- salva orçamento, metas, histórico e alterações em SQLite;
 - continua funcionando para cálculos essenciais mesmo sem uma LLM.
 
 ## Demonstração com os dados fictícios
@@ -40,11 +43,13 @@ Os valores são calculados pelo código a partir de data/transacoes.csv, e não 
 flowchart LR
     U[Usuário] --> UI[Interface Streamlit]
     UI --> CE[Motor de cálculos]
-    CE --> KB[(JSON e CSV fictícios)]
+    CE --> DB[(SQLite local)]
+    KB[(JSON e CSV iniciais)] --> DB
+    DB --> CE
     CE --> V[Validação de escopo]
     V --> UI
     UI -->|Pergunta aberta| LLM[Ollama local]
-    KB --> LLM
+    DB --> LLM
     LLM --> V
 ~~~
 
@@ -52,7 +57,8 @@ flowchart LR
 |---|---|---|
 | Interface | Streamlit + Plotly | Painel responsivo, gráficos, chat, editor de orçamento e metas |
 | Cálculos | Python | Somas, percentuais, limites e metas |
-| Base | JSON e CSV | Perfil, transações e histórico fictícios |
+| Base inicial | JSON e CSV | Valores usados somente no primeiro acesso |
+| Persistência | SQLite | Renda, despesas, metas, conversas e histórico de mudanças |
 | GenAI | Ollama, opcional | Respostas abertas com contexto controlado |
 | Segurança | Regras + roteamento local | Evitar dados inventados e recomendações indevidas |
 
@@ -75,8 +81,11 @@ mcduck-ai/
 │   └── 05-pitch.md
 ├── src/
 │   ├── app.py
-│   └── finance.py
+│   ├── database.py
+│   ├── finance.py
+│   └── chat_actions.py
 └── tests/
+    ├── test_database_actions.py
     └── test_finance.py
 ~~~
 
@@ -128,7 +137,7 @@ streamlit run src/app.py
 python -m unittest discover -s tests -v
 ~~~
 
-Os testes validam os totais do orçamento, a comparação de limites, o cálculo mensal da meta e o tratamento de prazo vencido.
+Os testes validam cálculos, persistência após reabertura, comandos do chat, reorganização de renda e separação entre a categoria “Investimentos” e conteúdo de investimento.
 
 ## Segurança e privacidade
 
@@ -139,6 +148,7 @@ Os testes validam os totais do orçamento, a comparação de limites, o cálculo
 - informações ausentes são solicitadas, nunca presumidas;
 - o catálogo de produtos financeiros da base original foi preservado por rastreabilidade, mas não é carregado pelo agente;
 - nenhuma informação é enviada a uma API externa: quando habilitada, a LLM roda localmente via Ollama.
+- comandos explícitos podem atualizar o planejamento; pedidos incompletos ou incompatíveis geram uma pergunta antes da mudança.
 
 ## Documentação
 
@@ -150,4 +160,4 @@ Os testes validam os totais do orçamento, a comparação de limites, o cálculo
 
 ## Limitações
 
-Este é um protótipo educacional. Ele não se conecta a contas bancárias, não persiste alterações feitas na interface, não calcula impostos ou juros e não presta consultoria financeira. Suas sugestões são possibilidades de organização que sempre devem ser avaliadas pelo usuário.
+Este é um protótipo educacional. Ele salva os dados localmente em data/mcduck.db, mas não se conecta a contas bancárias, não sincroniza entre dispositivos, não envia notificações com o aplicativo fechado, não calcula impostos ou juros e não presta consultoria financeira. Suas sugestões de organização devem ser revisadas pelo usuário.

@@ -4,3 +4,6 @@ __pycache__/
 venv/
 .streamlit/secrets.toml
 .env
+data/mcduck.db
+data/mcduck.db-shm
+data/mcduck.db-wal

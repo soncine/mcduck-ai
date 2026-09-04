@@ -172,8 +172,8 @@ def local_answer(message: str, profile: dict[str, Any], summary: dict[str, Any])
         )
     if any(term in intent for term in ("investir", "investimento", "acao", "acoes", "cripto", "retorno garantido")):
         return (
-            "Não recomendo investimentos específicos nem prometo retornos. Meu foco é orçamento, gastos, "
-            "economia e metas. Posso ajudar a calcular quanto do seu orçamento poderia ser destinado a uma meta."
+            "Não ensino, comparo ou recomendo investimentos e produtos financeiros. Posso usar "
+            "‘Investimentos’ apenas como uma categoria do orçamento quando você indicar o valor."
         )
     if any(term in intent for term in ("meta", "objetivo", "guardar", "economizar por mes")):
         return goals_answer(profile.get("metas", []), summary["disponivel"])

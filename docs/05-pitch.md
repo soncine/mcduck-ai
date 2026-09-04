@@ -23,7 +23,7 @@
 >
 > O agente soma receitas e despesas, agrupa os gastos por categoria, mostra o percentual da renda comprometida e compara cada categoria com um limite definido. Para uma meta, ele calcula o valor que falta e quanto precisa ser separado por mês dentro do prazo.
 >
-> O foco é exclusivamente orçamento, controle de gastos e planejamento de metas. Ele não recomenda investimentos, não promete retornos e não substitui um profissional.”
+> Os dados ficam salvos localmente em SQLite, então o planejamento continua disponível ao reabrir o aplicativo. O foco é orçamento, controle de gastos e metas: ele não ensina nem recomenda investimentos e não promete retornos. A palavra Investimentos pode ser usada apenas como uma categoria definida pelo usuário.”
 
 ### 3. Demonstração — 60 segundos
 
@@ -31,7 +31,7 @@
 >
 > Na barra lateral eu posso ajustar renda e gastos e ver os indicadores serem recalculados imediatamente.
 >
-> No chat, ao perguntar ‘onde estou gastando mais?’, o McDuck responde com valores vindos das transações. Se eu pedir uma recomendação de investimento, ele recusa e me direciona para o planejamento do orçamento.
+> No chat, posso consultar o orçamento ou pedir mudanças: ‘Adicione R$ 300 em Pets’, ‘Minha renda passou para R$ 6 mil’ ou ‘Reorganize minha renda’. O agente aplica comandos explícitos, salva as mudanças e pergunta quando falta uma decisão do usuário. Se eu pedir conteúdo ou recomendação de investimento, ele recusa; ainda assim, aceita Investimentos como simples categoria de planejamento.
 >
 > No simulador, informo o valor da meta, quanto já tenho e o prazo. O sistema calcula quanto guardar por mês e avisa se esse valor supera o disponível atual.”
 
@@ -39,7 +39,7 @@
 
 > “O principal diferencial é separar inteligência generativa de cálculo financeiro. Somas, percentuais, limites e metas são calculados por funções Python testadas; a LLM local é usada somente para perguntas abertas. Assim, o modelo não é responsável por inventar ou calcular números críticos.
 >
-> O projeto também aplica minimização de dados, recusa informações sensíveis e funciona nos recursos essenciais mesmo quando o Ollama está desligado.
+> O projeto também aplica minimização de dados, registra alterações, persiste o planejamento em SQLite, recusa informações sensíveis e funciona nos recursos essenciais mesmo quando o Ollama está desligado.
 >
 > Com isso, o McDuck AI torna a organização financeira mais clara, prática e segura. Ele não decide pelo usuário: entrega contexto para que cada pessoa tome decisões mais conscientes. Obrigado!”
 
@@ -47,10 +47,10 @@
 
 1. Abra a aba **Visão geral** e destaque os quatro indicadores;
 2. altere o gasto de Lazer acima do limite e mostre o alerta;
-3. pergunte no chat: “Onde estou gastando mais?”;
-4. pergunte: “Qual criptomoeda devo comprar?” para demonstrar a proteção;
-5. simule uma meta de R$ 15.000 com R$ 10.000 já guardados;
-6. encerre criando uma meta na aba **Suas metas**.
+3. peça no chat: “Adicione R$ 300 em Pets” e mostre a atualização do painel;
+4. peça: “Coloque todo o saldo disponível em Investimentos” e explique a separação de escopo;
+5. pergunte: “Qual criptomoeda devo comprar?” para demonstrar a proteção;
+6. encerre criando uma meta na aba **Suas metas** e reabrindo o app para mostrar a persistência.
 
 ## Checklist de gravação
 

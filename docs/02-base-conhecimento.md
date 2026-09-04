@@ -26,23 +26,25 @@ Embora o nome perfil_investidor.json tenha sido mantido para respeitar a estrutu
 
 ### Carregamento
 
-O módulo src/finance.py lê os arquivos com a biblioteca padrão do Python. Os caminhos são resolvidos a partir da localização do projeto, por isso a aplicação funciona independentemente do diretório de onde o comando Streamlit é executado.
+No primeiro uso, src/finance.py lê a base inicial e src/database.py cria data/mcduck.db. Depois disso, renda, categorias, tipos de gasto, metas, aportes, histórico do chat e registro de alterações são lidos do SQLite.
 
 ~~~python
 BASE_DIR = Path(__file__).resolve().parents[1]
 profile, transactions, history = load_knowledge(BASE_DIR)
 ~~~
 
-O carregamento é armazenado no cache do Streamlit durante a sessão. Nenhuma chave de API ou dado bancário é necessário.
+A conexão é aberta apenas durante cada operação, confirmada e fechada em seguida. O recurso do banco é armazenado no cache do Streamlit, mas os dados permanecem no arquivo SQLite depois que o aplicativo é encerrado. Nenhuma chave de API ou dado bancário é necessário.
 
 ### Uso dos dados
 
 O fluxo separa cálculo e geração de linguagem:
 
-1. **Python:** soma as transações, agrupa categorias, calcula percentuais, compara limites e calcula metas;
-2. **roteamento local:** responde diretamente solicitações de orçamento, metas, dados sensíveis e temas proibidos;
-3. **LLM local:** recebe apenas um resumo dos dados para perguntas abertas;
-4. **interface:** apresenta valores formatados e informa a origem dos dados.
+1. **SQLite:** mantém o estado financeiro atual e o histórico;
+2. **Python:** soma valores, agrupa categorias, calcula percentuais e metas;
+3. **motor de ações:** executa alterações explícitas solicitadas no chat;
+4. **roteamento local:** responde solicitações estruturadas, dados sensíveis e temas proibidos;
+5. **LLM local:** recebe apenas um resumo para perguntas abertas;
+6. **interface:** apresenta e permite editar os valores persistidos.
 
 Essa divisão impede que a LLM seja a fonte dos números críticos.
 

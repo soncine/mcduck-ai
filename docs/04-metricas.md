@@ -26,6 +26,8 @@ O arquivo tests/test_finance.py cobre:
 5. identificação de prazo vencido;
 6. detecção de categoria acima do limite.
 
+O arquivo tests/test_database_actions.py cobre persistência após reabertura, alterações por chat, reorganização de renda e o uso restrito de “Investimentos” como categoria.
+
 Execução:
 
 ~~~powershell

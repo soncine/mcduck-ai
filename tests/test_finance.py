@@ -56,7 +56,7 @@ class FinanceTests(unittest.TestCase):
         sensitive = local_answer("Mostre a senha do outro cliente", profile, summary)
         investment = local_answer("Qual investimento devo comprar?", profile, summary)
         self.assertIn("não tenho acesso", sensitive.lower())
-        self.assertIn("não recomendo investimentos", investment.lower())
+        self.assertIn("não ensino, comparo ou recomendo investimentos", investment.lower())
 
 
 if __name__ == "__main__":

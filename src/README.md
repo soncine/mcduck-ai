@@ -4,6 +4,10 @@
 
 - app.py: interface Streamlit e integração opcional com Ollama;
 - finance.py: carregamento de dados, cálculos e respostas locais seguras.
+- database.py: persistência local em SQLite;
+- chat_actions.py: interpretação e execução de alterações pedidas no chat.
+
+O banco data/mcduck.db é criado automaticamente no primeiro uso. Renda, categorias, metas, aportes e histórico do chat permanecem salvos após reiniciar a aplicação.
 
 ## Executar
 

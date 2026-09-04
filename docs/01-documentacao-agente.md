@@ -8,7 +8,7 @@ Muitas pessoas conhecem sua renda, mas não conseguem visualizar quanto está co
 
 ### Solução
 
-O **McDuck AI** recebe renda, despesas, limites e metas, organiza os valores e devolve uma análise simples e verificável. O agente destaca excessos, simula o esforço mensal necessário para cada meta e indica uma próxima ação possível. Ele informa quando faltam dados e não toma decisões pelo usuário.
+O **McDuck AI** recebe renda, despesas, limites e metas, organiza os valores e devolve uma análise simples e verificável. Quando o usuário pede explicitamente, o agente também altera categorias, renda, metas e aportes ou reorganiza o orçamento. Diante de conflito ou informação insuficiente, ele pergunta antes de mudar os dados.
 
 ### Público-alvo
 
@@ -47,7 +47,7 @@ Português do Brasil simples e acessível. Respostas curtas, com valores em Real
 - **Saudação:** “Olá! Sou o McDuck AI. Posso organizar seu orçamento, analisar gastos ou planejar uma meta. Por onde começamos?”
 - **Confirmação:** “Com os valores informados, suas despesas representam 55,8% da renda.”
 - **Dado ausente:** “Para calcular essa meta, ainda preciso do valor total, do que você já guardou e do prazo.”
-- **Limitação:** “Não recomendo investimentos específicos. Posso ajudar a descobrir quanto cabe no seu orçamento para uma meta.”
+- **Limitação:** “Não ensino nem recomendo investimentos. Posso usar ‘Investimentos’ somente como categoria do seu planejamento.”
 - **Próxima ação:** “Revise primeiro a maior categoria e escolha um limite que faça sentido para sua realidade.”
 
 ## Arquitetura
@@ -56,10 +56,14 @@ Português do Brasil simples e acessível. Respostas curtas, com valores em Real
 flowchart TD
     A[Usuário] --> B[Streamlit]
     B --> C{Tipo de solicitação}
-    C -->|Orçamento ou meta| D[Motor Python determinístico]
+    C -->|Consulta ou cálculo| D[Motor Python determinístico]
+    C -->|Comando de alteração| J[Motor de ações validado]
     C -->|Pergunta aberta| E[Ollama local]
-    F[(JSON e CSV fictícios)] --> D
-    F --> G[Contexto mínimo]
+    F[(JSON e CSV iniciais)] --> K[(SQLite local)]
+    K --> D
+    J --> K
+    J --> H
+    K --> G[Contexto mínimo]
     G --> E
     D --> H[Validação e formatação]
     E --> H
@@ -72,6 +76,8 @@ flowchart TD
 |---|---|
 | Interface | Streamlit com painel, gráficos Plotly, chat, orçamento editável e metas do usuário |
 | Motor de cálculos | finance.py soma valores, compara limites e calcula metas |
+| Motor de ações | chat_actions.py interpreta e executa comandos explícitos |
+| Persistência | database.py salva renda, gastos, metas, chat e auditoria em SQLite |
 | LLM | Ollama local para perguntas abertas; configuração por variáveis de ambiente |
 | Base de conhecimento | JSON e CSV fictícios na pasta data |
 | Roteamento | Perguntas críticas são respondidas localmente antes de acionar a LLM |
@@ -79,11 +85,12 @@ flowchart TD
 
 ### Fluxo de uma solicitação
 
-1. A interface recebe a mensagem e os valores da sessão;
-2. o classificador simples verifica se é orçamento, meta, dado sensível, investimento ou assunto fora do escopo;
-3. cálculos financeiros são executados em Python;
-4. somente perguntas abertas seguem para o Ollama com contexto mínimo;
-5. a resposta mostra resultado, explicação e próxima ação.
+1. A interface carrega o estado persistido no SQLite;
+2. o classificador verifica se a mensagem é consulta, cálculo, alteração, dado sensível ou assunto fora do escopo;
+3. comandos explícitos são validados e aplicados no banco;
+4. conflitos e comandos incompletos geram uma pergunta ao usuário;
+5. somente perguntas abertas seguem para o Ollama com contexto mínimo;
+6. a resposta e as alterações ficam registradas.
 
 ## Segurança e anti-alucinação
 
@@ -98,6 +105,9 @@ flowchart TD
 - [x] manter os dados locais por meio do Ollama;
 - [x] mostrar que os dados da demonstração são fictícios;
 - [x] cobrir cálculos centrais com testes automatizados.
+- [x] persistir mudanças localmente com SQLite;
+- [x] registrar um histórico das alterações feitas pela interface e pelo chat;
+- [x] separar a palavra “Investimentos” como categoria de pedidos sobre produtos financeiros.
 
 ### Dados mínimos por operação
 
@@ -114,11 +124,12 @@ O McDuck AI:
 
 - não acessa contas bancárias nem movimenta dinheiro;
 - não solicita senhas, tokens, número completo de cartão ou credenciais;
-- não recomenda produtos ou investimentos;
+- não ensina, compara ou recomenda produtos e investimentos;
 - não prevê rentabilidade, inflação ou cenário econômico;
 - não calcula impostos, encargos de dívida ou juros compostos;
 - não substitui profissional financeiro, contador ou advogado;
-- não mantém as alterações da interface após o fim da sessão;
+- mantém os dados somente no dispositivo atual e não sincroniza entre máquinas;
+- não executa monitoramento nem envia notificações enquanto estiver fechado;
 - não responde assuntos fora de organização financeira pessoal.
 
 ## Decisões de projeto
