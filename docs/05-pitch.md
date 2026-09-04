@@ -54,15 +54,15 @@
 
 ## Checklist de gravação
 
-- [ ] Duração entre 2:40 e 3:00;
-- [ ] fonte da interface legível;
-- [ ] dados fictícios mencionados;
-- [ ] problema e público-alvo claros;
-- [ ] cálculo de orçamento demonstrado;
-- [ ] proteção contra recomendação demonstrada;
-- [ ] diferencial técnico explicado;
-- [ ] áudio sem ruído e cursor visível.
+- [✓] Duração entre 2:40 e 3:00;
+- [✓] fonte da interface legível;
+- [✓] dados fictícios mencionados;
+- [✓] problema e público-alvo claros;
+- [✓] cálculo de orçamento demonstrado;
+- [✓] proteção contra recomendação demonstrada;
+- [✓] diferencial técnico explicado;
+- [✓] áudio sem ruído e cursor visível.
 
 ## Link do vídeo
 
-Adicionar após a gravação: **[link pendente]**
+**https://youtu.be/xRqXBGZWFD0**
