@@ -267,7 +267,11 @@ st.markdown(
 profile, transactions, history = get_data()
 base_summary = summarize_budget(transactions)
 db = get_database()
-db.seed_defaults(base_summary["receitas"], base_summary["categorias"])
+db.seed_defaults(
+    base_summary["receitas"],
+    base_summary["categorias"],
+    profile.get("limites_mensais", {}),
+)
 
 if "expense_editor_version" not in st.session_state:
     st.session_state.expense_editor_version = 0
@@ -381,7 +385,7 @@ with st.sidebar:
 stored_expenses = db.list_expenses()
 categories = {row["category"]: float(row["amount"]) for row in stored_expenses}
 summary = adjusted_summary(float(income), categories)
-limits = profile.get("limites_mensais", {})
+limits = db.list_limits()
 
 tab_dashboard, tab_chat, tab_goals = st.tabs(["Visão geral", "Assistente", "Suas metas"])
 

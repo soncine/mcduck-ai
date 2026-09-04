@@ -52,6 +52,12 @@ class FinanceDatabase:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS category_limits (
+                    category TEXT PRIMARY KEY COLLATE NOCASE,
+                    amount REAL NOT NULL CHECK (amount > 0),
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS goals (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
@@ -82,7 +88,12 @@ class FinanceDatabase:
     def _now() -> str:
         return datetime.now().isoformat(timespec="seconds")
 
-    def seed_defaults(self, income: float, categories: dict[str, float]) -> None:
+    def seed_defaults(
+        self,
+        income: float,
+        categories: dict[str, float],
+        limits: dict[str, float] | None = None,
+    ) -> None:
         """Cria valores iniciais somente no primeiro uso."""
         with self._connect() as connection:
             setting = connection.execute("SELECT 1 FROM settings WHERE key = 'monthly_income'").fetchone()
@@ -104,6 +115,22 @@ class FinanceDatabase:
                 connection.execute(
                     "INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)",
                     ("defaults_seeded", "1", self._now()),
+                )
+
+            limits_seeded = connection.execute(
+                "SELECT 1 FROM settings WHERE key = 'limits_seeded'"
+            ).fetchone()
+            if limits is not None and limits_seeded is None:
+                for category, amount in limits.items():
+                    if float(amount) <= 0:
+                        continue
+                    connection.execute(
+                        "INSERT OR IGNORE INTO category_limits(category, amount, updated_at) VALUES (?, ?, ?)",
+                        (category.strip().title(), float(amount), self._now()),
+                    )
+                connection.execute(
+                    "INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)",
+                    ("limits_seeded", "1", self._now()),
                 )
 
     def get_income(self) -> float:
@@ -182,6 +209,60 @@ class FinanceDatabase:
                 return False
             connection.execute("DELETE FROM expenses WHERE category = ? COLLATE NOCASE", (category.strip(),))
         self.log_change("gasto_removido", {**dict(row), "origem": source})
+        return True
+
+    def list_limits(self) -> dict[str, float]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT category, amount FROM category_limits ORDER BY category COLLATE NOCASE"
+            ).fetchall()
+        return {normalize(row["category"]): float(row["amount"]) for row in rows}
+
+    def upsert_limit(self, category: str, amount: float, source: str = "chat") -> None:
+        category = category.strip()[:40]
+        if not category:
+            raise ValueError("A categoria é obrigatória")
+        amount = float(amount)
+        if amount <= 0:
+            raise ValueError("O limite precisa ser maior que zero")
+        with self._connect() as connection:
+            existing = connection.execute(
+                "SELECT amount FROM category_limits WHERE category = ? COLLATE NOCASE",
+                (category,),
+            ).fetchone()
+            connection.execute(
+                """
+                INSERT INTO category_limits(category, amount, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(category) DO UPDATE SET
+                    amount = excluded.amount,
+                    updated_at = excluded.updated_at
+                """,
+                (category, amount, self._now()),
+            )
+        self.log_change(
+            "limite_atualizado" if existing else "limite_adicionado",
+            {
+                "categoria": category,
+                "valor_anterior": float(existing["amount"]) if existing else None,
+                "valor_atual": amount,
+                "origem": source,
+            },
+        )
+
+    def remove_limit(self, category: str, source: str = "chat") -> bool:
+        category = category.strip()
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT category, amount FROM category_limits WHERE category = ? COLLATE NOCASE",
+                (category,),
+            ).fetchone()
+            if row is None:
+                return False
+            connection.execute(
+                "DELETE FROM category_limits WHERE category = ? COLLATE NOCASE",
+                (category,),
+            )
+        self.log_change("limite_removido", {**dict(row), "origem": source})
         return True
 
     def replace_expenses(self, rows: list[dict[str, Any]], source: str = "editor") -> None:

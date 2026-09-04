@@ -66,6 +66,34 @@ def find_category_after_connector(message: str) -> str:
     return ""
 
 
+def parse_limit_change(message: str) -> tuple[str, float] | None:
+    """Extrai categoria e valor de comandos comuns de criação ou alteração de limite."""
+    category_first = re.search(
+        rf"\b(?:defina|adicione|crie|coloque|estabele[çc]a|ajuste|altere|mude)\s+"
+        rf"(?:(?:um|o)\s+)?limite\s+(?:de|da|do|para|em|na categoria)\s+(.+?)\s+"
+        rf"(?:em|para|de|no valor de)\s+{MONEY_PATTERN}",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if category_first:
+        category = clean_category(category_first.group(1))
+        amount = parse_money(category_first.group(2))
+        return (category, amount) if category else None
+
+    amount_first = re.search(
+        rf"\b(?:defina|adicione|crie|coloque|estabele[çc]a|ajuste|altere|mude)\s+"
+        rf"(?:(?:um|o)\s+)?limite\s+(?:de|em|no valor de)?\s*{MONEY_PATTERN}\s+"
+        rf"(?:em|para|na categoria|à categoria|a categoria)\s+(.+)$",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if amount_first:
+        amount = parse_money(amount_first.group(1))
+        category = clean_category(amount_first.group(2))
+        return (category, amount) if category else None
+    return None
+
+
 def _reorganize_budget(db: FinanceDatabase, income: float, mention_investment: bool) -> CommandResult:
     expenses = db.list_expenses()
     planning_names = {"reserva e metas", "flexibilidade", "margem de seguranca", "investimentos"}
@@ -151,6 +179,9 @@ def process_command(
         "incluir",
         "inclua",
         "registre",
+        "crie",
+        "defina",
+        "estabeleca",
         "mude",
         "altere",
         "ajuste",
@@ -165,7 +196,9 @@ def process_command(
 
     # A palavra investimento é aceita como rótulo de orçamento, mas não como conteúdo educativo.
     is_budget_change = any(term in intent for term in change_terms)
-    is_investment_topic = any(term in intent for term in investment_terms)
+    is_investment_topic = any(
+        re.search(rf"\b{re.escape(term)}\b", intent) for term in investment_terms
+    )
     if is_investment_topic and not is_budget_change:
         return CommandResult(
             True,
@@ -218,6 +251,45 @@ def process_command(
 
     if wants_reorganization:
         return _reorganize_budget(db, db.get_income(), is_investment_topic)
+
+    remove_limit_match = re.search(
+        r"\b(?:remova|exclua|apague|retire)\s+(?:o\s+)?limite\s+"
+        r"(?:de|da|do|para|em|na categoria)\s+(.+)$",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if remove_limit_match:
+        category = clean_category(remove_limit_match.group(1))
+        if db.remove_limit(category, source="chat"):
+            return CommandResult(
+                True,
+                f"Removi o limite da categoria {category}.",
+                changed=True,
+            )
+        return CommandResult(
+            True,
+            f"Não encontrei um limite para a categoria {category}. Qual limite devo remover?",
+        )
+
+    limit_change = parse_limit_change(text)
+    if limit_change:
+        category, amount = limit_change
+        if amount <= 0:
+            return CommandResult(True, "O limite precisa ser maior que zero.")
+        db.upsert_limit(category, amount, source="chat")
+        return CommandResult(
+            True,
+            f"Defini o limite mensal de {category} em {brl(amount)}.",
+            changed=True,
+        )
+
+    if "limite" in intent and any(
+        term in intent
+        for term in ("defina", "adicione", "crie", "coloque", "estabeleca", "ajuste", "altere", "mude")
+    ):
+        if first_amount(text) is None:
+            return CommandResult(True, "Qual valor mensal você quer definir para esse limite?")
+        return CommandResult(True, "Para qual categoria você quer definir esse limite?")
 
     # Exemplo: “altere Alimentação para R$ 650”.
     update_match = re.search(

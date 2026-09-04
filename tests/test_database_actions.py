@@ -23,12 +23,14 @@ class PersistenceAndActionsTests(unittest.TestCase):
     def test_data_survives_new_database_instance(self):
         self.db.set_income(6500)
         self.db.upsert_expense("Pets", 250, "Variável")
+        self.db.upsert_limit("Pets", 300)
         self.db.add_goal("Viagem", 6000, 1000, "2027-12")
         self.db.save_message("user", "Mensagem persistida")
 
         reopened = FinanceDatabase(self.db_path)
         self.assertEqual(reopened.get_income(), 6500)
         self.assertTrue(any(item["category"] == "Pets" for item in reopened.list_expenses()))
+        self.assertEqual(reopened.list_limits()["pets"], 300)
         self.assertEqual(reopened.list_goals()[0]["name"], "Viagem")
         self.assertEqual(reopened.list_messages()[0]["content"], "Mensagem persistida")
 
@@ -37,6 +39,49 @@ class PersistenceAndActionsTests(unittest.TestCase):
         pets = next(item for item in self.db.list_expenses() if item["category"] == "Pets")
         self.assertTrue(result.changed)
         self.assertEqual(pets["amount"], 300)
+
+    def test_chat_can_create_update_and_remove_category_limit(self):
+        created = process_command(
+            "Defina o limite de Alimentação em R$ 700",
+            self.db,
+            available=3200,
+        )
+        updated = process_command(
+            "Altere o limite de Alimentação para R$ 650",
+            self.db,
+            available=3200,
+        )
+
+        self.assertTrue(created.changed)
+        self.assertTrue(updated.changed)
+        self.assertEqual(self.db.list_limits()["alimentacao"], 650)
+
+        removed = process_command(
+            "Remova o limite de Alimentação",
+            self.db,
+            available=3200,
+        )
+        self.assertTrue(removed.changed)
+        self.assertNotIn("alimentacao", self.db.list_limits())
+
+    def test_chat_accepts_limit_value_before_category(self):
+        result = process_command(
+            "Coloque um limite de 300 em Lazer",
+            self.db,
+            available=3200,
+        )
+        self.assertTrue(result.changed)
+        self.assertEqual(self.db.list_limits()["lazer"], 300)
+
+    def test_incomplete_limit_command_asks_for_missing_value(self):
+        result = process_command(
+            "Defina um limite para Alimentação",
+            self.db,
+            available=3200,
+        )
+        self.assertTrue(result.handled)
+        self.assertFalse(result.changed)
+        self.assertIn("qual valor", result.message.lower())
 
     def test_investment_is_allowed_as_budget_category(self):
         result = process_command(
